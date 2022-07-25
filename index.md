@@ -1,4 +1,6 @@
-# Pokémon Combat Results Machine Learning Project 
+# Pokémon Combat Results Machine Learning Project   
+## [**Project Link**](https://github.com/nickcode23/machine-learning-project.git)
+
 
 
 
@@ -21,6 +23,6 @@ We obtained Pokémon datasets from Kaggle (Pokémon- Weedle's Cave | Kaggle), th
 We observed that **Random Forest** was the most effective model in predicting winners of Pokémon combats which achieved 96.68% accuracy, with speed difference between Pokémons as the most important predictor.
 
 
-## [**Project Link**](https://github.com/nickcode23/machine-learning-project.git)
+
 
 
