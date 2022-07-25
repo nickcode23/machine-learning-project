@@ -1,37 +1,26 @@
-## Welcome to GitHub Pages
+# Pokémon Combat Results Machine Learning Project 
 
-You can use the [editor on GitHub](https://github.com/nickcode23/machine-learning-project/edit/gh-pages/index.md) to maintain and preview the content for your website in Markdown files.
 
-Whenever you commit to this repository, GitHub Pages will run [Jekyll](https://jekyllrb.com/) to rebuild the pages in your site, from the content in your Markdown files.
 
-### Markdown
 
-Markdown is a lightweight and easy-to-use syntax for styling your writing. It includes conventions for
 
-```markdown
-Syntax highlighted code block
 
-# Header 1
-## Header 2
-### Header 3
 
-- Bulleted
-- List
 
-1. Numbered
-2. List
 
-**Bold** and _Italic_ and `Code` text
 
-[Link](url) and ![Image](src)
-```
+## Why we do this
+Pokémon was a game series developed by Nintendo and was later adapted into animations and movies. Pokémons are creatures of all shapes and sizes in the wild or raised by trainers. In many Pokémon games, the player is a trainer who catches Pokémons, trains them, and battles against other trainers' Pokémons. Pokémon battles are turn-based. Each battle consists of repeated turns, and each turn requires all participants to choose an action to take. The outcomes of those actions are revealed immediately through changes in Pokémon status, such as a decrease in hitpoint, which directly influence the rest of the combat. Eventually, the Pokémon reaches zero hit points first loss, and the one that lasts longer wins (The Cave of Dragonflies, 2019). Inspired by the game process, we were curious about how well the combat results can be predicted given the characteristics of two Pokémons. 
 
-For more details see [Basic writing and formatting syntax](https://docs.github.com/en/github/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax).
 
-### Jekyll Themes
+## How we do this
+We obtained Pokémon datasets from Kaggle (Pokémon- Weedle's Cave | Kaggle), the datasets contained descriptive data of 800 Pokémons and 50,000 combat results. Classification methods including **logistic regression**, **Linear Discriminant Analysis (LDA)**, **Quadratic Discriminant Analysis(QDA)**, **K-Nearest Neighbors(KNN)**, **Support Vector Machines(SVM)**, and **tree models** are used to predict the combat results.
 
-Your Pages site will use the layout and styles from the Jekyll theme you have selected in your [repository settings](https://github.com/nickcode23/machine-learning-project/settings/pages). The name of this theme is saved in the Jekyll `_config.yml` configuration file.
 
-### Support or Contact
+## Final Result
+We observed that **Random Forest** was the most effective model in predicting winners of Pokémon combats which achieved 96.68% accuracy, with speed difference between Pokémons as the most important predictor.
 
-Having trouble with Pages? Check out our [documentation](https://docs.github.com/categories/github-pages-basics/) or [contact support](https://support.github.com/contact) and we’ll help you sort it out.
+
+## [**Project Link**](https://github.com/nickcode23/machine-learning-project.git)
+
+
