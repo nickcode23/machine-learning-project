@@ -1,0 +1,612 @@
+---
+title: "Ultmate version"
+author: "Xinyue Xing, Boyu Liu, Yingxi Huang, Tianyi Li, Yingjie Gao"
+date: "5/1/2022"
+output: html_document
+---
+```{r}
+library(ggplot2)
+library(dplyr)
+library(ggthemes)
+library(tidyverse)
+library(corrplot)
+library(tree)
+library(caret)
+library(MASS)
+library(ROCR)
+library(class)
+library(pROC)
+library(leaps)
+library(GGally)
+library(randomForest)
+library(fastDummies)
+```
+
+## Loading and Preprocessing the Data
+
+```{r}
+pokemon <- read.csv("pokemon.csv")
+names(pokemon)[1] <- "Pokemon_ID"
+combat <- read.csv("combats.csv")
+```
+
+## Data Cleaning
+```{r}
+combatm <- cbind(combat) %>%
+    left_join(pokemon,
+              by = c("First_pokemon" = "Pokemon_ID")) %>%
+    left_join(pokemon,
+              by = c("Second_pokemon" = "Pokemon_ID"))
+
+combatm$Result[combatm$Winner == combatm$First_pokemon] <- 'Win'
+combatm$Result[combatm$Winner == combatm$Second_pokemon] <- 'Loss'
+combatm$Result <- as.factor(combatm$Result)
+combatm$binaryResult[combatm$Result == "Win"] <- 1
+combatm$binaryResult[combatm$Result == "Loss"] <- 0
+combatm$Legendary.x[combatm$Legendary.x == "True"] <- 1
+combatm$Legendary.x[combatm$Legendary.x == "False"] <- 0
+combatm$Legendary.y[combatm$Legendary.y == "True"] <- 1
+combatm$Legendary.y[combatm$Legendary.y == "False"] <- 0
+combatm <- na.omit(combatm)
+```
+
+## Exploratory Analysis
+```{r}
+Type.1.x<-c("Dragon","Steel","Flying","Psychic","Rock" ,"Fire","Electric" ,"Dark","Ghost" ,"Ground","Ice", "Water","Grass","Fighting", "Fairy" ,"Poison","Normal","Bug")
+
+color<-c("#6F35FC","#B7B7CE","#A98FF3","#F95587","#B6A136","#EE8130","#F7D02C","#705746","#735797","#E2BF65","#96D9D6","#6390F0","#7AC74C","#C22E28","#D685AD","#A33EA1","#A8A77A","#A6B91A")
+
+Type.1.y<-c("Dragon","Steel","Flying","Psychic","Rock" ,"Fire","Electric" ,"Dark","Ghost" ,"Ground","Ice", "Water","Grass","Fighting", "Fairy" ,"Poison","Normal","Bug")
+
+COL1<-data.frame(Type.1.x,color)
+
+COL2<-data.frame(Type.1.y,color)
+
+merge(
+  merge(combatm %>% group_by(Type.1.x) %>% summarize(tot1=n()),
+        combatm %>% group_by(Type.1.x,Legendary.x) %>% summarize(count1=n()),by='Type.1.x'),
+  COL1, by='Type.1.x') %>%
+  ggplot(aes(x=reorder(Type.1.x, tot1),y=count1)) + 
+  geom_bar(aes(fill=color,alpha=Legendary.x),color='white',size=.25,stat='identity') + 
+  scale_fill_identity() + coord_flip() + theme_fivethirtyeight() + 
+  ggtitle("Pokemon Distribution for First Pokemon") + scale_alpha_discrete(range=c(.9,.6))
+
+merge(
+  merge(combatm %>% group_by(Type.1.y) %>% summarize(tot2=n()),
+        combatm %>% group_by(Type.1.y,Legendary.y) %>% summarize(count2=n()),by='Type.1.y'),
+  COL2, by='Type.1.y') %>%
+  ggplot(aes(x=reorder(Type.1.y, tot2),y=count2)) + 
+  geom_bar(aes(fill=color,alpha=Legendary.y),color='white',size=.25,stat='identity') + 
+  scale_fill_identity() + coord_flip() + theme_fivethirtyeight() + 
+  ggtitle("Pokemon Distribution for Second Pokemon") + scale_alpha_discrete(range=c(.9,.6))
+```
+
+```{r}
+ggplot(combatm, aes(Speed.x, fill = Result)) + geom_density(alpha = 0.5)
+ggplot(combatm, aes(Speed.y, fill = Result)) + geom_density(alpha = 0.5)
+ggplot(combatm, aes(Speed.x-Speed.y, fill = Result)) + geom_density(alpha = 0.5)
+
+ggplot(combatm, aes(Attack.x, fill = Result)) + geom_density(alpha = 0.5)
+ggplot(combatm, aes(Attack.y, fill = Result)) + geom_density(alpha = 0.5)
+ggplot(combatm, aes(Attack.x-Attack.y, fill = Result)) + geom_density(alpha = 0.5)
+
+ggplot(combatm, aes(Defense.x, fill = Result)) + geom_density(alpha = 0.5)
+ggplot(combatm, aes(Defense.y, fill = Result)) + geom_density(alpha = 0.5)
+ggplot(combatm, aes(Defense.x-Defense.y, fill = Result)) + geom_density(alpha = 0.5)
+
+ggplot(combatm, aes(Sp..Atk.x, fill = Result)) + geom_density(alpha = 0.5)
+ggplot(combatm, aes(Sp..Atk.y, fill = Result)) + geom_density(alpha = 0.5)
+ggplot(combatm, aes(Sp..Atk.x-Sp..Atk.y, fill = Result)) + geom_density(alpha = 0.5)
+
+ggplot(combatm, aes(Sp..Def.x, fill = Result)) + geom_density(alpha = 0.5)
+ggplot(combatm, aes(Sp..Def.y, fill = Result)) + geom_density(alpha = 0.5)
+ggplot(combatm, aes(Sp..Def.x-Sp..Def.y, fill = Result)) + geom_density(alpha = 0.5)
+
+
+combatm <- combatm[,-which(names(combatm) %in% c("Name.x","Name.y","Result","First_pokemon","Second_pokemon","Winner"))]
+```
+```{r}
+
+set.seed(123) 
+trainIndex <- createDataPartition(combatm$binaryResult,p=0.8,list=FALSE)
+    
+ #splitting data into training/testing data using the trainIndex object
+original.train <- combatm[trainIndex,] #training data (80% of data)
+original.test <- combatm[-trainIndex,] #testing data (20% of data)
+
+```
+
+## Adding Difference Variables
+```{r}
+combatm$HP_diff = combatm$HP.x - combatm$HP.y
+combatm$Attack_diff = combatm$Attack.x - combatm$Attack.y
+combatm$Defense_diff = combatm$Defense.x - combatm$Defense.y
+combatm$SpAttack_diff = combatm$Sp..Atk.x - combatm$Sp..Atk.y
+combatm$SpDefense_diff = combatm$Sp..Def.x - combatm$Sp..Def.y
+combatm$Speed_diff = combatm$Speed.x - combatm$Speed.y
+```
+
+```{r}
+combat.train <- combatm[,-which(names(combatm) %in% c("Type.1.x","Type.1.y","Type.2.x","Type.2.y"))][trainIndex,] #training data (80% of data)
+combat.test <- combatm[,-which(names(combatm) %in% c("Type.1.x","Type.1.y","Type.2.x","Type.2.y"))][-trainIndex,] #testing data (20% of data)
+
+best.select <- regsubsets(binaryResult~., data = combat.train, nvmax = 22)
+summary(best.select)
+res.sum <- summary(best.select)
+data.frame(
+  Adj.R2 = which.max(res.sum$adjr2),
+  CP = which.min(res.sum$cp),
+  BIC = which.min(res.sum$bic)
+)
+```
+
+##Data after best subset selection and without Speed_diff
+```{r}
+train <- combat.train[,which(names(combat.train) %in% c("HP.x","Generation.x","Legendary.x","Speed.y","Generation.y","Legendary.y", "HP_diff","Attack_diff", "Defense_diff","SpAttack_diff","SpDefense_diff","Speed_diff","binaryResult"))]
+test <- subset(combat.test, select = colnames(train))
+
+train2 <- train[,which(names(train) %in% c("HP.x","Generation.x","Legendary.x","Generation.y","Legendary.y", "Speed.y", "HP_diff","Attack_diff", "Defense_diff","SpAttack_diff","SpDefense_diff","binaryResult"))]
+test2 <- subset(combat.test, select = colnames(train2))
+```
+
+## Logistic Regression
+```{r}
+# remove variables that are binary
+train <- subset(train, select =c(-Legendary.x,-Legendary.y))
+# remove variables that are collinear
+tmp <- cor(train)
+tmp[upper.tri(tmp)] <- 0
+diag(tmp) <- 0
+train <- train[,!apply(tmp,2, function(x) any(abs(x) > 0.9, na.rm = TRUE))]
+# remove variables in test dataset
+test <- subset(test, select = colnames(train))
+
+df = cor(train)
+hc = findCorrelation(df, cutoff=0.99)
+hc # indicating that there's no serious collinearity, and we can use the original dataset
+
+# fit the model
+logistic.mod <- glm(binaryResult~., family = binomial, train)
+summary(logistic.mod)
+
+# Test
+logistic.pred <- predict(logistic.mod, test, type="response")
+logistic.test = ifelse(logistic.pred >0.5, 1, 0)
+logistic.table = table(logistic.test,test$binaryResult)
+
+# AUC
+logistic.pred.roc <- roc(test$binaryResult, logistic.pred)
+logistic.pred.roc
+
+# Accuracy
+(logistic.table[1,1]+logistic.table[2,2])/sum(logistic.table)
+
+confusionMatrix(data = as.factor(logistic.test),
+                reference = as.factor(test$binaryResult))
+
+```
+
+## Logistic Regression for data without Speed_diff
+```{r}
+# remove variables that are binary
+train2 <- subset(train2, select =c(-Legendary.x,-Legendary.y))
+# remove variables that are collinear
+tmp <- cor(train2)
+tmp[upper.tri(tmp)] <- 0
+diag(tmp) <- 0
+train2 <- train2[,!apply(tmp,2, function(x) any(abs(x) > 0.9, na.rm = TRUE))]
+# remove variables in test dataset
+test2 <- subset(test2, select = colnames(train2))
+
+df2 = cor(train2)
+hc2 = findCorrelation(df, cutoff=0.99)
+hc2 # indicating that there's no serious collinearity, and we can use the original dataset
+
+# fit the model
+logistic.mod2 <- glm(binaryResult~., family = binomial, train2)
+summary(logistic.mod2)
+
+# Test
+logistic.pred2 <- predict(logistic.mod2, test2, type="response")
+logistic.test2 = ifelse(logistic.pred2 >0.5, 1, 0)
+logistic.table2 = table(logistic.test2,test2$binaryResult)
+
+# AUC
+logistic.pred.roc2 <- roc(test2$binaryResult, logistic.pred2)
+logistic.pred.roc2
+
+# Accuracy
+(logistic.table2[1,1]+logistic.table2[2,2])/sum(logistic.table2)
+
+confusionMatrix(data = as.factor(logistic.test2),
+                reference = as.factor(test2$binaryResult))
+
+```
+
+## Adding Type Variables
+```{r}
+combatm <- combatm %>% mutate(Grass.x=ifelse(Type.1.x=="Grass", 1, 0),
+                              Bug.x=ifelse(Type.1.x=="Bug", 1, 0),
+                            Dark.x=ifelse(Type.1.x=="Dark", 1, 0),
+                              Dragon.x=ifelse(Type.1.x=="Dragon", 1, 0),
+                              Electric.x=ifelse(Type.1.x=="Electric", 1, 0),
+                              Fairy.x=ifelse(Type.1.x=="Fairy", 1, 0),
+                              Fighting.x=ifelse(Type.1.x=="Fighting", 1, 0),
+                            Fire.x=ifelse(Type.1.x=="Fire", 1, 0),
+                            Flying.x=ifelse(Type.1.x=="Flying", 1, 0),
+                            Ghost.x=ifelse(Type.1.x=="Ghost", 1, 0),
+                            Ground.x=ifelse(Type.1.x=="Ground", 1, 0),
+                            Ice.x=ifelse(Type.1.x=="Ice", 1, 0),
+                            Normal.x=ifelse(Type.1.x=="Normal", 1, 0),
+                            Poison.x=ifelse(Type.1.x=="Poison", 1, 0),
+                            Psychic.x=ifelse(Type.1.x=="Psychic", 1, 0),
+                            Rock.x=ifelse(Type.1.x=="Rock", 1, 0),
+                            Steel.x=ifelse(Type.1.x=="Steel", 1, 0),
+                            Water.x=ifelse(Type.1.x=="Water", 1, 0))
+
+
+combatm <- combatm %>% mutate(Grass.y=ifelse(Type.1.y=="Grass", 1, 0),
+                            Bug.y=ifelse(Type.1.y=="Bug", 1, 0),
+                            Dark.y=ifelse(Type.1.y=="Dark", 1, 0),
+                              Dragon.y=ifelse(Type.1.y=="Dragon", 1, 0),
+                              Electric.y=ifelse(Type.1.y=="Electric", 1, 0),
+                              Fairy.y=ifelse(Type.1.y=="Fairy", 1, 0),
+                              Fighting.y=ifelse(Type.1.y=="Fighting", 1, 0),
+                            Fire.y=ifelse(Type.1.y=="Fire", 1, 0),
+                            Flying.y=ifelse(Type.1.y=="Flying", 1, 0),
+                            Ghost.y=ifelse(Type.1.y=="Ghost", 1, 0),
+                            Ground.y=ifelse(Type.1.y=="Ground", 1, 0),
+                            Ice.y=ifelse(Type.1.y=="Ice", 1, 0),
+                            Normal.y=ifelse(Type.1.y=="Normal", 1, 0),
+                            Poison.y=ifelse(Type.1.y=="Poison", 1, 0),
+                            Psychic.y=ifelse(Type.1.y=="Psychic", 1, 0),
+                            Rock.y=ifelse(Type.1.y=="Rock", 1, 0),
+                            Steel.y=ifelse(Type.1.y=="Steel", 1, 0),
+                            Water.y=ifelse(Type.1.y=="Water", 1, 0))
+
+```
+
+## Splitting to training and testing data
+```{r}
+combatm <- combatm[,-which(names(combatm) %in% c("Type.1.x","Type.1.y","Type.2.x","Type.2.y"))]
+
+set.seed(123) 
+trainIndex <- createDataPartition(combatm$binaryResult,p=0.8,list=FALSE)
+combatm.train <- combatm[trainIndex,] #training data (80% of data)
+combatm.test <- combatm[-trainIndex,] #testing data (20% of data)
+```
+
+## PCA
+```{r}
+# remove the response variable
+combatm.train_pca = combatm.train[,-17]
+# deal with categorical variables
+combatm.train_dummy = dummy_cols(combatm.train_pca, select_columns = c("Generation.x", "Generation.y"))
+combatm.train_dummy = dplyr::select(combatm.train_dummy, -c("Generation.x", "Generation.y"))
+
+for(n in colnames(combatm.train_dummy)){
+  if (is.character(combatm.train_dummy[,n])) {
+    combatm.train_dummy[,n] = as.numeric(combatm.train_dummy[,n])
+  }
+} 
+
+# do PCA
+pr.out <- prcomp(combatm.train_dummy, scale = TRUE)
+pr.var <- pr.out$sdev^2
+pve = pr.var / sum(pr.var)
+plot(cumsum(pve), xlab = "Principal Component", ylab = "Proportion of Variance Explained", ylim = c(0,1), type = 'b')
+which(cumsum(pve)>=0.9) #We should use the first 46 principal components
+
+# return training set after PCA
+pca_train = data.frame(binaryResult = combatm.train$binaryResult, pr.out$x)
+pca_train = pca_train[,1:47]
+
+# obtain corresponding test set
+## repeat the processing before PCA
+combatm.test_pca = combatm.test[,-17]
+combatm.test_dummy = dummy_cols(combatm.test_pca, select_columns = c("Generation.x", "Generation.y"))
+combatm.test_dummy = dplyr::select(combatm.test_dummy, -c("Generation.x", "Generation.y"))
+
+for(n in colnames(combatm.test_dummy)){
+  if (is.character(combatm.test_dummy[,n])) {
+    combatm.test_dummy[,n] = as.numeric(combatm.test_dummy[,n])
+  }
+} 
+
+pca_test <- predict(pr.out, newdata = combatm.test_dummy)
+pca_test = data.frame(binaryResult = combatm.test$binaryResult, pca_test[,1:46])
+```
+
+## QDA
+```{r}
+# remove variables that are collinear
+tmp <- cor(pca_train)
+tmp[upper.tri(tmp)] <- 0
+diag(tmp) <- 0
+qda.train <- pca_train[,!apply(tmp,2, function(x) any(abs(x) > 0.9, na.rm = TRUE))]
+head(qda.train)
+# remove variables in test dataset
+qda.test <- subset(pca_test, select = colnames(qda.train))
+qda.mod <- qda(binaryResult~., data = qda.train)
+summary(qda.mod)
+
+# fit the model
+qda.pred <- predict(qda.mod, newdata = qda.test,type="response")
+
+#QDA Accuracy, Sensitivity, and Specificity
+confusionMatrix(data = as.factor(qda.pred$class),
+                reference = as.factor(qda.test$binaryResult))
+
+#QDA ROC and AUC
+prediction(qda.pred$posterior[,2], qda.test$binaryResult) %>%
+  performance(measure = "tpr", x.measure = "fpr") %>%
+  plot()
+
+prediction(qda.pred$posterior[,2], qda.test$binaryResult) %>%
+  performance(measure = "auc") %>%
+  .@y.values
+```
+
+## LDA
+```{r}
+lda.mod <- lda(binaryResult~., data = qda.train)
+summary(lda.mod)
+
+# fit the model
+lda.pred <- predict(lda.mod, newdata = qda.test,type="response")
+
+#LDA Accuracy, Sensitivity, and Specificity
+confusionMatrix(data = as.factor(lda.pred$class),
+                reference = as.factor(qda.test$binaryResult))
+
+#LDA ROC and AUC
+prediction(lda.pred$posterior[,2], qda.test$binaryResult) %>%
+  performance(measure = "tpr", x.measure = "fpr") %>%
+  plot()
+
+prediction(lda.pred$posterior[,2], qda.test$binaryResult) %>%
+  performance(measure = "auc") %>%
+  .@y.values
+```
+
+## KNN
+```{r}
+# choose best K
+library(class)
+calc_class_err = function(actual, predicted) {
+  mean(actual != predicted)
+}
+
+set.seed(100)
+k_to_try = 1:50
+err_k = rep(x = 0, times = length(k_to_try))
+
+for (i in seq_along(k_to_try)) {
+  pred = knn(train = pca_train, 
+             test  = pca_test, 
+             cl    = pca_train$binaryResult, 
+             k     = k_to_try[i])
+  err_k[i] = calc_class_err(pca_test$binaryResult, pred)
+}
+
+which(err_k == min(err_k))
+```
+
+```{r}
+kNN_pred = knn(train = pca_train, 
+             test  = pca_test, 
+             cl    = pca_train$binaryResult, 
+             k     = 49)
+fit.knn.test.roc <- roc(pca_test$binaryResult, as.numeric(kNN_pred))
+knn.tab = table(kNN_pred,pca_test$binaryResult)
+knn.tab
+
+# Accuracy
+(knn.tab[1,1]+knn.tab[2,2])/sum(knn.tab)
+
+# KNN AUC
+fit.knn.test.roc
+```
+
+```{r}
+set.seed(1234)
+library(e1071)
+library(ISLR)
+
+split <- sample(c(rep(0, 0.01 * nrow(pca_train)), rep(1, 0.99 * nrow(pca_train))))
+svm.train <- pca_train[split == 0, ]
+svm.train <- pca_train[c(1:1000),]
+tune.fit <- tune(svm, binaryResult ~ ., data = svm.train, kernel = "linear", ranges = list(cost = c(0.5, 1, 5, 10, 25, 50, 100)))
+summary(tune.fit)
+```
+
+```{r}
+set.seed(1234)
+svm.linear = svm(binaryResult ~ ., data = svm.train, kernel = "linear", cost = 0.5)
+summary(svm.linear)
+svm.linear.pred = predict(svm.linear, newdata = pca_test)
+svm.linear.test = ifelse(svm.linear.pred>0.5,1,0)
+mean(svm.linear.test == pca_test$binaryResult)
+
+svm.linear.test.roc <- roc(pca_test$binaryResult, as.numeric(svm.linear.pred))
+svm.linear.test.roc
+```
+
+```{r}
+set.seed(1234)
+tune.fit1 <- tune(svm,binaryResult ~ ., data = svm.train, kernel = "polynomial",
+           ranges = list(cost = c(0.1, 1, 5, 10, 25, 50, 100), degree = c(2, 3, 4)))
+summary(tune.fit1)
+```
+
+```{r}
+svm.poly = svm(binaryResult ~ ., data = svm.train, kernel = "polynomial", cost = 1, degree = 3)
+summary(svm.poly)
+svm.poly.pred = predict(svm.poly, newdata = pca_test)
+svm.poly.test = ifelse(svm.poly.pred>0.5,1,0)
+mean(svm.poly.test == pca_test$binaryResult)
+
+svm.poly.test.roc <- roc(pca_test$binaryResult, as.numeric(svm.poly.pred))
+svm.poly.test.roc
+```
+
+```{r}
+set.seed(1234)
+tune.fit2 <- tune(svm, binaryResult ~ ., data = svm.train, kernel = "radial",
+            ranges = list(cost = c(0.1, 1, 5, 10,25),
+                    gamma = c(0.01, 0.1, 1, 5, 10, 100)))
+summary(tune.fit2)
+```
+
+```{r}
+svm.radial = svm(binaryResult ~ ., data = svm.train, kernel = "radial", cost = 1, gamma = 0.1)
+summary(svm.radial)
+svm.radial.pred = predict(svm.radial, newdata = pca_test)
+svm.radial.test = ifelse(svm.radial.pred>0.5,1,0)
+mean(svm.radial.test == pca_test$binaryResult)
+
+
+svm.radial.test.roc <- roc(pca_test$binaryResult, as.numeric(svm.radial.pred))
+svm.radial.test.roc
+```
+
+
+## Decision Tree for original dataset
+```{r}
+# Decison Tree
+set.seed(100)
+original.train$binaryResult <- as.factor(ifelse(original.train$binaryResult == 1, "Win", "Loss"))
+result_tree = tree(binaryResult ~., data = original.train) 
+summary(result_tree) 
+plot(result_tree)
+text(result_tree, pretty = 0)
+title(main = "Unpruned Classification Tree")
+
+# Predict
+tree_pred = predict(result_tree, original.test, type = "class")
+table(tree_pred, original.test$binaryResult)
+# Accuracy : 0.9406
+
+# cv
+set.seed(3)
+cv.result <- cv.tree(result_tree, FUN = prune.misclass)
+cv.result
+
+# plot
+par(mfrow = c(1, 2))
+plot(cv.result$size, cv.result$dev, type = "b")
+plot(cv.result$k, cv.result$dev, type = "b")
+```
+
+
+```{r}
+# Prune
+prune.result <- prune.misclass(result_tree, best = 10)
+plot(prune.result)
+text(prune.result, pretty = 0)
+
+# accuracy
+prune.pred <- predict(prune.result, original.test, type = "class")
+table(prune.pred, test$binaryResult) 
+summary(prune.result)
+```
+
+```{r}
+oob.err=double(20)
+for(mtry in 1:20){
+  fit=randomForest(binaryResult~.,data=original.train,mtry=mtry,ntree=200)
+  oob.err[mtry]=fit$err.rate[50]
+  cat(mtry," ")
+}
+oob.err
+plot(oob.err, ylab= "Error", xlab= '1:mtry', type = 'l')
+which.min(oob.err)
+```
+
+```{r}
+set.seed(1)
+best.result<- randomForest(binaryResult ~ ., data = original.train, mtry = 15, importance = TRUE, ntree=200)
+
+importance(best.result)
+varImpPlot(best.result)
+
+best.pred <- predict(best.result, original.test)
+table(best.pred, original.test$binaryResult)
+# Accuracy : 0.8190
+
+# Get AUC and ROC for Random Forest
+require(pROC)
+rf.roc<-roc(original.train$binaryResult,best.result$votes[,2])
+plot(rf.roc)
+auc(rf.roc)
+```
+
+```{r}
+
+# Decison Tree
+set.seed(100)
+combatm.train$binaryResult <- as.factor(ifelse(combatm.train$binaryResult == 1, "Win", "Loss"))
+combatm.result_tree = tree(binaryResult ~., data = combatm.train) 
+summary(combatm.result_tree) 
+plot(combatm.result_tree)
+text(combatm.result_tree, pretty = 0)
+title(main = "Unpruned Classification Tree")
+
+# Predict
+combatm.tree_pred = predict(combatm.result_tree, combatm.test, type = "class")
+table(combatm.tree_pred, combatm.test$binaryResult)
+# Accuracy : 0.9406
+
+# cv
+set.seed(3)
+combatm.cv.result <- cv.tree(combatm.result_tree, FUN = prune.misclass)
+combatm.cv.result
+
+# plot
+par(mfrow = c(1, 2))
+plot(combatm.cv.result$size, combatm.cv.result$dev, type = "b")
+plot(combatm.cv.result$k, combatm.cv.result$dev, type = "b")
+```
+
+```{r}
+# Prune
+combatm.prune.result <- prune.misclass(combatm.result_tree, best = 2)
+plot(combatm.prune.result)
+text(combatm.prune.result, pretty = 0)
+
+# accuracy
+combatm.prune.pred <- predict(combatm.prune.result, combatm.test, type = "class")
+table(combatm.prune.pred, combatm.test$binaryResult) 
+summary(combatm.prune.result)
+```
+
+
+```{r}
+combatm.oob.err=double(58)
+for(mtry in 1:58){
+  fit=randomForest(binaryResult~.,data=combatm.train,mtry=mtry,ntree=200)
+  combatm.oob.err[mtry]=fit$err.rate[50]
+  cat(mtry," ")
+}
+combatm.oob.err
+plot(combatm.oob.err, ylab= "Error", xlab= '1:mtry', type = 'l')
+which.min(combatm.oob.err)
+```
+```{r}
+set.seed(1)
+combatm.best.result<- randomForest(binaryResult ~ ., data = combatm.train, mtry = 52, importance = TRUE, ntree=200)
+
+importance(combatm.best.result)
+varImpPlot(combatm.best.result)
+
+combatm.best.pred <- predict(combatm.best.result, combatm.test)
+table(combatm.best.pred, combatm.test$binaryResult)
+# Accuracy : 0.8190
+
+# Get AUC and ROC for Random Forest
+require(pROC)
+combatm.rf.roc<-roc(combatm.train$binaryResult,combatm.best.result$votes[,2])
+plot(combatm.rf.roc)
+auc(combatm.rf.roc)
+```
+
